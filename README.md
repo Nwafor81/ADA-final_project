@@ -1,6 +1,6 @@
 # ADAVANCE DATA ANALYSIS FINAL PROJECT
 ## Project Description
-This repository includes the 2023 BRFSS complete dataset, a final analytic sample of 2023 BRFSS used for this and R markdown code used
+This repository includes the 2023 BRFSS clean dataset, a final analytic sample of 2023 BRFSS used for this and R markdown code used
 to analyze it. The project is part of the final project of Advanced Data analysis with my reseach question being:"What Is the Association Between Marital Status, Insurance Status, 
 and Mammography Utilization Among U.S. Women Aged 40 Years and Older Using 2023 BRFSS Data".
 ## Objectives of the study
@@ -35,4 +35,5 @@ saved
 ## Author
 - Name: Aaron Nwafor
 - Course: Advanced Data analysis
+
 - Date: NOVEMBER 2025
