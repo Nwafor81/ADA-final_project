@@ -1,0 +1,482 @@
+---
+title: "ADA PROJECT"
+author: "Aaron Nwafor"
+date: "2025-11-25"
+output:
+  html_document:
+    always_allow_html: true
+---
+
+
+
+### Installing packages
+```{r setup, include=FALSE}
+needed<- c("tidyverse","haven","survey","srvyr","janitor","tableone",
+            "broom","car","egg","cowplot","ggplot2","scales","gt","readr")
+
+# Install missing packages
+invisible(lapply(needed, function(pkg){
+  if(!require(pkg, character.only = TRUE)){
+    install.packages(pkg, dependencies = TRUE)
+    library(pkg, character.only = TRUE)
+  }
+}))
+```
+
+
+### Loading packages
+```{r}
+library(tidyverse)
+library(haven)    
+library(survey)
+library(srvyr)
+library(janitor)
+library(tableone)
+library(broom)
+library(car)      
+library(ggplot2)
+library(scales)
+library(readr)
+library(dplyr)
+library(knitr)
+```
+
+
+### Load BRFSS 2023 dataset
+```{r}
+data_file<-"C:/Users/Aaron/Desktop/Git demo1/LLCP2023.XPT"
+
+BRFSS_Raw<-haven::read_xpt(data_file)
+
+BRFSS_Raw
+
+```
+
+
+### Subset of Variables for the study
+```{r}
+vars_to_keep <- c(
+  "HADMAM",    # Mammography utilization
+  "_AGE80",    # Age
+  "SEXVAR",    # Sex of respondent
+  "MARITAL",   # Marital status
+  "_HLTHPL1",  # Insurance status
+  "EDUCA",     # Educational attainment
+  "_LLCPWT",   # Survey weight
+  "_PSU",      # PSU
+  "_STSTR"     # Strata
+)
+
+BRFSS_subset <- BRFSS_Raw %>%
+  select(all_of(vars_to_keep))
+```
+
+### Isolating population of Women aged 40- 74 years in BRFSS 2023 dataset.
+```{r}
+BRFSS_women_40_74yrs <- BRFSS_subset%>%
+  filter(
+    SEXVAR==2,
+    `_AGE80` >= 40, `_AGE80` <= 74, 
+  )
+```
+
+
+### Keep women aged 40-74 who were asked mammography question in the subset.
+```{r}
+BRFSS_mammo_eligible1 <- BRFSS_women_40_74yrs%>%
+  filter(
+    `_AGE80` >= 40 & `_AGE80` <= 74,
+    !is.na(HADMAM)
+  )
+```
+
+
+### Percentage of women aged 40-74 years(unweighted) who were asked about mammogram utlization
+```{r}
+percentage_responded <- (sum(BRFSS_mammo_eligible1, na.rm = TRUE) / 
+                         sum(BRFSS_women_40_74yrs, na.rm = TRUE)) * 100
+percentage_responded
+
+```
+### Keep women aged 40-74, recode the key variables and remove missing values for key variables
+```{r}
+BRFSS_Clean <- BRFSS_mammo_eligible1 %>%
+mutate(
+    Mammogram_utlization = case_when(
+      HADMAM == 1 ~ 1,
+      HADMAM == 2 ~ 0,
+  TRUE ~ NA_real_
+    ),
+  Mammogram_utlization_label = case_when(
+      Mammogram_utlization == 1 ~ "Yes",
+      Mammogram_utlization == 0 ~ "No",
+      TRUE ~ NA_character_
+    ),
+    Marital_status = case_when(
+      MARITAL == 1 ~ "Married",
+      MARITAL %in% c(2,3,4,5,6) ~ "Single",
+      TRUE ~ NA_character_
+    ),
+    Insurance_status = ifelse(`_HLTHPL1` == 1, "Have Insurance", "No Insurance"),
+    Age_group = cut(`_AGE80`, 
+                    breaks = c(40,49,59,69,74),
+                    labels = c("40-49","50-59","60-69","70-74"), 
+                    right = TRUE,
+                    include.lowest = TRUE),
+    Educational_attainment = case_when(
+      EDUCA %in% c(1,2) ~ "Elementary or less",
+      EDUCA %in% c(3,4) ~ "High school/GED",
+      EDUCA == 5 ~ "Some college or technical school",
+      EDUCA == 6 ~ "College graduate",
+      TRUE ~ NA_character_
+    )
+)
+BRFSS_Clean
+```
+
+
+### Checking missing values of key variables in the clean dataset
+```{r}
+sum(is.na(BRFSS_Clean$Marital_status))
+sum(is.na(BRFSS_Clean$Mammogram_utlization))
+sum(is.na(BRFSS_Clean$Insurance_status))
+sum(is.na(BRFSS_Clean$Educational_attainment))
+sum(is.na(BRFSS_Clean$Age_group))
+```
+
+
+
+### Final analytic sample for the research from the BRFSS 2023 dataset
+```{r}
+BRFSS_analytic_sample <- BRFSS_Clean %>%
+  drop_na(Mammogram_utlization,
+          Marital_status,
+          Insurance_status,
+          Age_group,
+          Educational_attainment)
+
+BRFSS_analytic_sample
+```
+
+
+### Checking missing valueson the analytic sample
+```{R}
+sum(is.na(BRFSS_analytic_sample$Marital_status))
+sum(is.na(BRFSS_analytic_sample$Mammogram_utlization))
+sum(is.na(BRFSS_analytic_sample$Insurance_status))
+sum(is.na(BRFSS_analytic_sample$Educational_attainment))
+sum(is.na(BRFSS_analytic_sample$Age_group))
+
+```
+
+
+### Creating Figure 1 showing a flow dragram resulting to final analytic sample
+```{r}
+library(DiagrammeR)
+
+fig1 <-grViz("
+digraph flowchart {
+
+  rankdir = TB;
+
+  node [shape=rectangle, fontname=Helvetica, fontsize=16, style=solid, color=black];
+
+  # Main vertical flow nodes
+  BRFSS_Raw        [label='BRFSS 2023 Dataset\n(N = 433,323)'];
+  Women_40_74      [label='Women aged 40–74 years in BRFSS 2023 dataset\n(N = 139,385)'];
+  Mammogram_eligible [label='Eligible women who responded to the mammogram question\n(N = 762)'];
+  Cleaned_data     [label='key variables recoded \n(N = 762)'];
+  Analytic_sample  [label='Final analytic sample\n(N = 741)'];
+
+  Excluded_age   [label='\nAge <40 or >74 years\n(N = 293,935)'colour=blue];
+  Excluded_missing_mammo  [label='\n Eligble women but missing mammogram response\n(N = 138,623)'];
+  Excluded_missing_vars   [label='\nMissing values on key variables\n(N = 21)'];
+
+  # Force horizontal alignment at each level
+  { rank = same; BRFSS_Raw; Excluded_Age; }
+  { rank = same; Women_40_74; Excluded_missing_mammo; }
+  { rank = same; Cleaned_data; Excluded_missing_vars; }
+
+  # Main vertical flow
+  BRFSS_Raw -> Women_40_74;
+  Women_40_74 -> Mammogram_eligible;
+  Mammogram_eligible -> Cleaned_data;
+  Cleaned_data -> Analytic_sample;
+
+  # Horizontal branches
+  BRFSS_Raw:e -> Excluded_age           [constraint=false];
+  Women_40_74:e -> Excluded_missing_mammo  [constraint=false];
+  Cleaned_data:e -> Excluded_missing_vars  [constraint=false];
+
+label = 'Figure 1:Flowchart showing data cleaning and final analytic sample (Unweighted) from the BRFSS 2023 dataset'
+labelloc = 't'     
+fontname = 'Times-Roman'
+fontsize = 18
+}
+")
+fig1
+```
+
+### Applying BRFSS weights to the study
+```{r}
+BRFSS_svy <- svydesign(
+  ids = ~`_PSU`,
+  strata = ~`_STSTR`,
+  weights = ~`_LLCPWT`,
+  data = BRFSS_analytic_sample,
+  nest = TRUE
+)
+
+```
+
+
+### Descriptive table of mammogram utilization (weighted) accross insurance status, status. Age and Educational attainment
+```{r}
+BRFSS_analytic_sample <- BRFSS_analytic_sample %>%
+  mutate(
+    Mammogram_utlization_label = ifelse(
+      Mammogram_utlization == 1, "Yes",
+      ifelse(Mammogram_utlization == 0, "No", NA_character_)
+      )
+  )
+BRFSS_svy_srvyr <- as_survey(BRFSS_svy)
+
+table1_by_var <- function(var) {
+  BRFSS_svy_srvyr %>%
+    group_by({{var}}, Mammogram_utlization_label) %>%
+    summarize(weighted_n = survey_total()) %>%
+    group_by({{var}}) %>%
+    mutate(weighted_pct = weighted_n / sum(weighted_n) * 100) %>%
+    ungroup() %>%
+    rename(category = {{var}})
+}
+
+table1_marital <- table1_by_var(Marital_status) %>% mutate(variable = "Marital Status")
+table1_insurance <- table1_by_var(Insurance_status) %>% mutate(variable = "Insurance Status")
+
+# Confounders / adjusting variables
+table1_age <- table1_by_var(Age_group) %>% mutate(variable = "Age Group")
+table1_edu <- table1_by_var(Educational_attainment) %>% mutate(variable = "Education")
+
+# Combine all tables
+Table1 <- bind_rows(table1_insurance,table1_marital,  table1_age, table1_edu) %>%
+  select(variable, category, Mammogram_utlization_label, weighted_n, weighted_pct)
+
+# Round percentages
+Table1$weighted_pct <- round(Table1$weighted_pct, 1)
+
+kable(Table1, caption = "Table 1: Weighted distribution of mammography utilization by exposures and adjusting variables")
+```
+
+
+### Renaming of column headings of Table_1
+```{r}
+Table1_renamed <- Table1 %>%
+  rename(
+    "Variable" = variable,
+    "Category" = category,
+    "Mammogram Utilization" = Mammogram_utlization_label,
+    "Weighted(n)" = weighted_n,
+    "Weighted (%)" = weighted_pct
+  )
+kable(Table1_renamed, caption = "Table 1: Weighted distribution of mammography utilization by exposures and adjusting variables") 
+```
+
+
+### Bivariate logistic regression(unadjusted) between Marital status vs Mammogram utlization
+```{r}
+bivariate_model <- svyglm(
+  Mammogram_utlization ~ Marital_status,
+  design = BRFSS_svy,
+  family = quasibinomial()
+)
+summary(bivariate_model)
+
+exp(cbind(OR = coef(bivariate_model), confint(bivariate_model)))
+```
+
+
+### Creating Table 2 of the bivariate logistic regression
+```{r}
+table2 <- broom::tidy(bivariate_model, conf.int = TRUE, exponentiate = TRUE) %>%
+  mutate(
+    Significance = ifelse(p.value < 0.05, "p < 0.05", "p > 0.05"),
+    OR = round(estimate, 2),
+    CI = paste0(round(conf.low,2), " – ", round(conf.high,2))
+  ) %>%
+  select(term, OR, CI, Significance)
+
+# Print table
+kable(table2, col.names = c("Variable", "OR", "95% CI", "Significance"), 
+caption = "Table 2. Association Between Marital Status and Mammogram Utilization Among Women Aged 40–74 Years, BRFSS 2023")
+```
+
+### Unndajusted Bivariate logistic regression between Insurance status vs Mammogram utilization
+```{r}
+unadjusted_insurance <- svyglm(
+  Mammogram_utlization ~ Insurance_status,
+  design = BRFSS_svy,
+  family = quasibinomial()
+)
+
+summary(unadjusted_insurance)
+
+exp(cbind(OR = coef(unadjusted_insurance), confint(unadjusted_insurance)))
+#Creating a table
+
+table3 <- broom::tidy(unadjusted_insurance, conf.int = TRUE, exponentiate = TRUE) %>%
+  mutate(
+    Significance = ifelse(p.value < 0.05, "p < 0.05", "p > 0.05"),
+    OR = round(estimate, 2),
+    CI = paste0(round(conf.low,2), " – ", round(conf.high,2))
+  ) %>%
+  select(term, OR, CI, Significance)
+
+# Print table
+kable(table3, col.names = c("Variable", "OR", "95% CI", "Significance"), 
+caption = "Table 3. Association Between Insurance Status(unadjusted) and Mammogram Utilization Among Women Aged 40–74 Years from BRFSS 2023") 
+```
+
+
+
+
+### Multivariable logistic regression(adjusted)
+```{r}
+adjusted_model <- svyglm(
+  Mammogram_utlization ~ Insurance_status + Age_group + Educational_attainment,
+  design = BRFSS_svy,
+  family = quasibinomial()
+)
+summary(adjusted_model)
+exp(cbind(OR = coef(adjusted_model), confint(adjusted_model)))
+
+table4 <- broom::tidy(adjusted_model, conf.int = TRUE, exponentiate = TRUE) %>%
+  mutate(
+    Significance = ifelse(p.value < 0.05, "p < 0.05", "p > 0.05"),
+    OR = round(estimate, 2),
+    CI = paste0(round(conf.low,2), " – ", round(conf.high,2))
+  ) %>%
+  select(term, OR, CI, Significance)
+
+# Print table
+kable(table4, col.names = c("Variable", "OR", "95% CI", "Significance"), 
+caption = "Table 4.The association between Insurance status and Mammogram utilization among women aged 40-74 years adjusting for Age and Educational attainment") 
+```
+
+
+### Interaction (Effect modification) by marital status
+```{r}
+model_interact <- svyglm(
+  Mammogram_utlization ~ Insurance_status * Marital_status + Age_group + Educational_attainment,
+  design = BRFSS_svy,
+  family = quasibinomial()
+)
+
+summary(model_interact)
+
+regTermTest(model_interact, ~ Insurance_status:Marital_status)
+
+table5 <- broom::tidy(model_interact, conf.int = TRUE, exponentiate = TRUE) %>%
+  mutate(
+    Significance = ifelse(p.value < 0.05, "p < 0.05","P > 0.05"),
+    OR = round(estimate, 2),
+    CI = paste0(round(conf.low,2), " – ", round(conf.high,2))
+  ) %>%
+  select(term, OR, CI, Significance)
+
+# Print table
+kable(table5, col.names = c("Variable", "OR", "95% CI", "Significance"), 
+caption = "Table 5.. Association Between Insurance Status, Marital Status, and Mammogram Utilization, Adjusted for Age and Educational Attainment and interaction terms")
+```
+### Model diagnostics
+```{r}
+# Variance Inflation Factor (check multicollinearity)
+vif(model_interact)
+
+# Goodness-of-fit tests
+svyglm.resid <- residuals(model_interact, type = "deviance")
+
+svyglm.pred <- predict(model_interact, type = "response")
+
+# Combine into a data frame
+resid_df <- data.frame(
+  Residuals = svyglm.resid,
+  Predicted = svyglm.pred
+)
+
+ggplot(resid_df, aes(x = Residuals)) +
+  geom_histogram(binwidth = 0.2, fill = "steelblue", color = "black") +
+  labs(title = "Histogram of Deviance Residuals",
+       x = "Deviance Residuals",
+       y = "Frequency") +
+  theme_minimal()
+
+#Cooks distance testing
+influencePlot(model_interact)
+```
+
+
+
+
+### Model diagnostics, identifying outliers and data management
+```{r}
+# Extract deviance residuals
+svyglm_resid <- residuals(model_interact, type = "deviance")
+
+# Identify outliers (absolute residual > 3)
+outlier_index <- which(abs(svyglm_resid) > 3)
+
+# View how many and which rows
+length(outlier_index)
+outlier_index
+
+BRFSS_analytic_sample[outlier_index, ]
+
+BRFSS_no_outliers <- BRFSS_analytic_sample[-outlier_index, ]
+
+
+BRFSS_svy_no_out <- svydesign(
+  ids = ~`_PSU`,
+  strata = ~`_STSTR`,
+  weights = ~`_LLCPWT`,
+  data = BRFSS_no_outliers,
+  nest = TRUE
+)
+
+model_interact_no_out <- svyglm(
+  Mammogram_utlization ~ Insurance_status * Marital_status +
+    Age_group + Educational_attainment,
+  design = BRFSS_svy_no_out,
+  family = quasibinomial()
+)
+
+summary(model_interact_no_out)
+exp(cbind(OR = coef(model_interact_no_out),
+          confint(model_interact_no_out)))
+model_interact_no_out
+
+table7 <- broom::tidy(model_interact_no_out, conf.int = TRUE, exponentiate = TRUE) %>%
+  mutate(
+    Significance = ifelse(p.value < 0.05, "p < 0.05","P>0.05"),
+    OR = round(estimate, 2),
+    CI = paste0(round(conf.low,2), " – ", round(conf.high,2))
+  ) %>%
+  select(term, OR, CI, Significance)
+
+# Print table
+kable(table7, col.names = c("Variable", "OR", "95% CI", "Significance"), 
+caption = "Table 7.Association Between Insurance Status, Marital Status, and Mammogram Utilization, Adjusted for Age and Educational Attainment and interaction terms without outliers")
+```
+
+
+### Exporting datasets used
+```{r}
+write.csv(BRFSS_Raw, file.path("C:/Users/Aaron/Desktop/Git demo1", "BRFSS 2023 complete dataset.csv"), row.names = FALSE)
+
+write.csv(BRFSS_analytic_sample, file.path("C:/Users/Aaron/Desktop/Git demo1", "BRFSS 2023 analytic sample dataset.csv"), row.names = FALSE)
+
+
+
+```
+###******************************END********************************************
+
